@@ -1,0 +1,440 @@
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   free.c                                             :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: qacjl <qacjl@student.42.fr>                +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/04/14 13:09:34 by qacjl             #+#    #+#             */
+/*   Updated: 2025/04/17 13:13:30 by qacjl            ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "philosopher.h"
+
+void	destroy_mutexes(t_data *data)
+{
+	int	i;
+
+	i = 0;
+	while (i < data->nb_philo)
+	{
+		pthread_mutex_destroy(&data->forks[i]);
+		i++;
+	}
+	pthread_mutex_destroy(&data->print);
+	pthread_mutex_destroy(&data->death_mutex);
+}
+
+void	free_all(t_data	*data)
+{
+	if (data->forks)
+		free(data->forks);
+	if (data->philos)
+		free(data->philos);
+}
+
+void	exit_clean(t_data *data)
+{
+	destroy_mutexes(data);
+	free_all(data);
+}
+
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   init.c                                             :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: qacjl <qacjl@student.42.fr>                +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/04/14 13:09:31 by qacjl             #+#    #+#             */
+/*   Updated: 2025/04/17 17:38:55 by qacjl            ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "philosopher.h"
+
+
+static void	init_philosophes(t_data *data)
+{
+	int	i;
+
+	i = 0;
+	while (i < data->nb_philo)
+	{
+		data->philos[i].id = i + 1;
+		data->philos[i].data = data;
+		data->philos[i].nb_meal_eat = 0;
+		data->philos[i].fork_left = &data->forks[i];
+		data->philos[i].fork_right = &data->forks[(i + 1) % data->nb_philo];
+		i++;
+	}
+}
+
+static int	init_mutexes(t_data *data)
+{
+	int	i;
+
+	i = 0;
+	data->forks = malloc(sizeof(pthread_mutex_t) * data->nb_philo);
+	if (!data->forks)
+		return (0);
+	if (i < data->nb_philo)
+	{
+		pthread_mutex_init(&data->forks[i], NULL);
+		i++;
+	}
+	pthread_mutex_init(&data->print, NULL);
+	pthread_mutex_init(&data->death_mutex, NULL);
+	return (1);
+}
+
+int	init_all(t_data *data, int ac, char **av)
+{
+	if (ac < 5 || ac > 6)
+		return (0);
+	data->nb_philo = atoi_safe_nb(av[1]);
+	data->time_to_die = atoi_safe_nb(av[2]);
+	data->time_to_eat = atoi_safe_nb(av[3]);
+	data->time_to_sleep = atoi_safe_nb(av[4]);
+	if (ac == 6)
+		data->must_eat = atoi_safe_nb(av[5]);
+	else
+		data->must_eat = -1;
+	if (data->nb_philo <= 0 || data->time_to_die <= 0
+		|| data->time_to_eat <= 0
+		|| data->time_to_sleep <= 0
+		|| (ac == 6 && data->must_eat <= 0))
+		return (0);
+	data->someone_die = 0;
+	data->start_time = get_time();
+	data->philos = malloc(sizeof(t_philo) * data->nb_philo);
+	if (!data->philos)
+		return (0);
+	if (!init_mutexes(data))
+		return (0);
+	init_philosophes(data);
+	return (1);
+}
+
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   main.c                                             :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: qacjl <qacjl@student.42.fr>                +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/04/14 13:09:28 by qacjl             #+#    #+#             */
+/*   Updated: 2025/04/17 14:19:39 by qacjl            ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "philosopher.h"
+
+int	main(int ac, char **av)
+{
+	t_data data;
+	pthread_t monitor;
+	int	i;
+
+	i = 0;
+	if (!init_all(&data, ac, av))
+		return (1);
+	while (i < data.nb_philo)
+	{
+		pthread_create(&data.philos[i].thread, NULL, routine, &data.philos[i]);
+		i++;
+	}
+	i = 0;
+	pthread_create(&monitor, NULL, monitoring, &data);
+	while(i < data.nb_philo)
+	{
+		pthread_join(data.philos[i].thread, NULL);
+		i++;
+	}
+	pthread_join(monitor, NULL);
+	return (0);
+}
+
+NAME = philosopher
+
+CC = cc
+
+CFLAGS = -Wall -Wextra -Werror
+
+SRC =	free.c \
+		init.c \
+		main.c \
+		monitor.c \
+		routine.c \
+		utils.c \
+
+OBJ = $(SRC:.c=.o)
+
+all : $(NAME)
+
+$(NAME): $(OBJ)
+	$(CC) $(CFLAGS) $(OBJ) -o $(NAME) -Iinclude
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+clean:
+	rm -f $(OBJ)
+
+fclean: clean
+	rm -f $(NAME)
+
+re: fclean all
+
+.PHONY: all clean fclean re
+
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   monitor.c                                          :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: qacjl <qacjl@student.42.fr>                +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/04/14 13:09:22 by qacjl             #+#    #+#             */
+/*   Updated: 2025/04/17 17:38:09 by qacjl            ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "philosopher.h"
+
+void	*monitoring(void *arg)
+{
+	t_data	*data;
+	int		i;
+	long	now;
+
+	data = (t_data *)arg;
+	while (1)
+	{
+		i = 0;
+		while (i < data->nb_philo)
+		{
+			pthread_mutex_lock(&data->death_mutex);
+			now = get_time();
+			if (!data->someone_die
+				&& now - data->philos[i].last_meal > data->time_to_die)
+			{
+				data->someone_die = 1;
+				pthread_mutex_lock(&data->print);
+				printf("%ld %d died\n", now - data->start_time, data->philos[i].id);
+				pthread_mutex_unlock(&data->print);
+				pthread_mutex_unlock(&data->death_mutex);
+				return (NULL);
+			}
+			pthread_mutex_unlock(&data->death_mutex);
+			i++;
+		}
+		usleep(1000);
+	}
+	return (NULL);
+}
+
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   philosopher.h                                      :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: qacjl <qacjl@student.42.fr>                +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/04/14 13:09:11 by qacjl             #+#    #+#             */
+/*   Updated: 2025/04/17 17:37:57 by qacjl            ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#ifndef PHILOSOPHER_H
+# define PHILOSOPHER_H
+
+#include <pthread.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <sys/time.h>
+
+typedef struct s_data t_data;
+
+typedef struct s_philo
+{
+	int		id;
+	int		nb_meal_eat;
+	long	last_meal;
+	pthread_t	thread;
+	pthread_mutex_t *fork_left;
+	pthread_mutex_t *fork_right;
+	t_data			*data;
+}	t_philo;
+
+typedef struct s_data
+{
+	int	nb_philo;
+	int	time_to_die;
+	int	time_to_eat;
+	int	time_to_sleep;
+	int	must_eat;
+	int	someone_die;
+	long	start_time;
+	t_philo	*philos;
+	pthread_mutex_t	*forks;
+	pthread_mutex_t	print;
+	pthread_mutex_t	death_mutex;
+}	t_data;
+
+void	*routine(void *args);
+void	*monitoring(void *args);
+int		init_all(t_data *data, int ac, char **av);
+long	get_time(void);
+int		atoi_safe_nb(char *str);
+void	print_action(t_philo *philo, char *msg);
+void	dormir(long time_ms);
+
+#endif
+
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   routine.c                                          :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: qacjl <qacjl@student.42.fr>                +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/04/14 13:09:15 by qacjl             #+#    #+#             */
+/*   Updated: 2025/04/17 17:45:38 by qacjl            ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "philosopher.h"
+
+void	eat(t_philo *philo)
+{
+	if (philo->id % 2 == 0)
+	{
+		pthread_mutex_lock(philo->fork_right);
+		print_action(philo, "has taken a fork");
+		pthread_mutex_lock(philo->fork_left);
+		print_action(philo, "has taken a fork");
+	}
+	else
+	{
+		pthread_mutex_lock(philo->fork_left);
+		print_action(philo, "has taken a fork");
+		pthread_mutex_lock(philo->fork_right);
+		print_action(philo, "has taken a fork");
+	}
+
+	pthread_mutex_lock(&philo->data->death_mutex);
+	philo->last_meal = get_time();
+	print_action(philo, "is eating");
+	pthread_mutex_unlock(&philo->data->death_mutex);
+
+	dormir(philo->data->time_to_eat);
+
+	pthread_mutex_unlock(philo->fork_left);
+	pthread_mutex_unlock(philo->fork_right);
+
+	philo->nb_meal_eat++;
+}
+
+int	is_simulation_running(t_data *data)
+{
+	int	running;
+
+	pthread_mutex_lock(&data->death_mutex);
+	running = !data->someone_die;
+	pthread_mutex_unlock(&data->death_mutex);
+	return (running);
+}
+
+void	*routine(void *arg)
+{
+	t_philo	*philo;
+
+	philo = (t_philo *)arg;
+
+	if (philo->id % 2 == 0)
+		usleep(1000);
+
+	while (is_simulation_running(philo->data))
+	{
+		eat(philo);
+
+		if (philo->data->must_eat > 0
+			&& philo->nb_meal_eat >= philo->data->must_eat)
+			break ;
+
+		print_action(philo, "is sleeping");
+		dormir(philo->data->time_to_sleep);
+
+		print_action(philo, "is thinking");
+	}
+
+	return (NULL);
+}
+
+/* ************************************************************************** */
+/*                                                                            */
+/*                                                        :::      ::::::::   */
+/*   utils.c                                            :+:      :+:    :+:   */
+/*                                                    +:+ +:+         +:+     */
+/*   By: qacjl <qacjl@student.42.fr>                +#+  +:+       +#+        */
+/*                                                +#+#+#+#+#+   +#+           */
+/*   Created: 2025/04/14 13:09:19 by qacjl             #+#    #+#             */
+/*   Updated: 2025/04/17 17:36:10 by qacjl            ###   ########.fr       */
+/*                                                                            */
+/* ************************************************************************** */
+
+#include "philosopher.h"
+
+int	atoi_safe_nb(char *str)
+{
+	int res;
+	int i;
+
+	res = 0;
+	i = 0;
+	while (str[i])
+	{
+		if (str[i] < '0' || str[i] > '9')
+			return (-1);
+		res = res * 10 + str[i] - '0';
+		if (res > 2147483647)
+			return (-1);
+		i++;
+	}
+	if (res == 0)
+		return (-1);
+	return (res);
+}
+
+long	get_time(void)
+{
+	struct timeval tv;
+
+	gettimeofday(&tv, NULL);
+	return ((tv.tv_sec * 1000) + (tv.tv_usec / 1000));
+}
+
+void	dormir(long time_ms)
+{
+	long start;
+
+	start = get_time();
+	while ((get_time() - start) < time_ms)
+		usleep(100);
+}
+
+void	print_action(t_philo *philo, char *msg)
+{
+	pthread_mutex_lock(&philo->data->death_mutex);
+	if (!philo->data->someone_die)
+	{
+		pthread_mutex_lock(&philo->data->print);
+		printf("%ld %d %s\n", get_time() - philo->data->start_time, philo->id,
+			   msg);
+		pthread_mutex_unlock(&philo->data->print);
+	}
+	pthread_mutex_unlock(&philo->data->death_mutex);
+}
